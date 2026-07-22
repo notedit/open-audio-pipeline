@@ -1,0 +1,29 @@
+[project]
+name = "audio-pipeline"
+version = "0.1.0"
+description = "从开源音频数据集中提取优质 TTS 训练语料的处理 pipeline"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "torch>=2.6",
+    "torchaudio",
+    "transformers>=4.53",
+    "qwen-asr",
+    "nemo_toolkit[asr]>=2.2",
+    "audiobox-aesthetics",
+    "webdataset",
+    "jiwer",
+    "pypinyin",
+    "cn2an",
+    "soundfile",
+    "librosa",
+    "pyyaml",
+    "tqdm",
+    "huggingface_hub[hf_transfer]",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["audio_pipeline"]

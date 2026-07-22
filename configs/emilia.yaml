@@ -1,0 +1,62 @@
+# Emilia-Dataset 清洗配置
+# Emilia 源数据已带 dnsmos/speaker(其上游 pipeline 做过分离与切分),
+# 这里做二次精筛: 美学评分 -> 说话人复核 -> ASR 一致性 -> 对齐 -> 停顿.
+
+batch_size: 64          # pipeline 一次流转的样本数(各 stage 内部再按自身 batch_size 切)
+
+duration:
+  min_sec: 2.0
+  max_sec: 30.0
+
+audiobox:
+  enabled: true
+  batch_size: 64
+  min_pq: 6.0           # 制作质量, 语音清洗主阈值 (Emilia 播客样本实测多在 5.5~6.5, 先跑一批看 drops 分布再调)
+  min_ce: null
+  min_cu: null
+  max_pc: null
+
+diarization:
+  enabled: true
+  model: nvidia/diar_streaming_sortformer_4spk-v2
+  batch_size: 32
+  max_speakers: 1
+  min_speaker_sec: 0.5  # 说话时长低于该值的"说话人"视为噪声不计数
+
+asr:
+  enabled: true
+  model: Qwen/Qwen3-ASR-1.7B
+  backend: vllm                # transformers | vllm (vLLM 连续批处理, 吞吐更高)
+  gpu_memory_utilization: 0.15 # vLLM 显存占比; 每卡 2 worker 时各 0.15
+  batch_size: 64
+  # context 偏置强制口语数字形态, 免去独立 TN stage
+  context: "转写时所有数字一律使用中文汉字数字(如:一八七六年、二百一十亿、百分之五十),禁止使用阿拉伯数字和符号。"
+
+  max_wer: 0.05         # 双 ASR 一致性门槛 (中文按字, 拼音级)
+  phonetic: true        # 拼音级比较: 同音字/数字写法差异不计错 (meta 里同时保留 char_wer)
+  adopt_text: true      # 通过后采用 Qwen3-ASR 转写为最终文本, 原文本保留在 meta.orig_text
+
+tn:
+  enabled: false           # 兜底用: ASR context 已强制口语数字, 仅当输出仍出现数字/符号时再开
+  model: Qwen/Qwen3-4B
+  batch_size: 8
+
+align:
+  enabled: true
+  model: Qwen/Qwen3-ForcedAligner-0.6B
+  batch_size: 32
+
+trim:
+  enabled: true          # 首尾静音规整: 超出裁剪, 不足补零, 重编码为 FLAC
+  head_silence_sec: 0.1
+  tail_silence_sec: 0.3
+
+pause:
+  enabled: true
+  max_gap_sec: 1.5           # 句内最大静音
+  max_edge_silence_sec: 1.0  # 首尾最大静音
+
+punct:
+  enabled: true
+  comma_gap_sec: 0.3   # 静音超过且无标点 -> 补逗号
+  period_gap_sec: 0.8  # 静音超过且无标点 -> 补句号
