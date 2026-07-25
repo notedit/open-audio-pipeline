@@ -12,10 +12,13 @@ TOTAL=$((GPUS * PER_GPU))
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 mkdir -p "$OUTPUT/logs"
+# 共享机器上按空闲显存从大到小排卡, 避免落到他人占满的卡上 OOM
+GPU_ORDER=($(nvidia-smi --query-gpu=index,memory.free --format=csv,noheader,nounits | sort -t, -k2 -rn | cut -d, -f1))
 for g in $(seq 0 $((GPUS - 1))); do
   for m in $(seq 0 $((PER_GPU - 1))); do
     w=$((g * PER_GPU + m))
-    CUDA_VISIBLE_DEVICES=$g nohup "$ROOT/.venv/bin/python" "$RUN" \
+    CUDA_VISIBLE_DEVICES=${GPU_ORDER[$g]} PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+      setsid nohup "$ROOT/.venv/bin/python" "$RUN" \
       --input "$INPUT" --output "$OUTPUT" --config "$CONFIG" \
       --worker-id "$w" --num-workers "$TOTAL" \
       > "$OUTPUT/logs/worker$w.log" 2>&1 &

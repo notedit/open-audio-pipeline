@@ -49,6 +49,9 @@ def compute_wer(
     ref_units = to_units(reference, language)
     hyp_units = to_units(hypothesis, language)
     if phonetic:
+        # 连续拉丁词合并: "green field one" vs "greenfieldone" 是写法差异非发音差异
+        ref_units = _merge_latin_runs(ref_units)
+        hyp_units = _merge_latin_runs(hyp_units)
         ref_units = _to_pinyin(ref_units)
         hyp_units = _to_pinyin(hyp_units)
     if not ref_units:
@@ -66,6 +69,26 @@ def _numbers_to_cn(text: str) -> str:
         return cn2an.transform(text, "an2cn")
     except Exception:
         return text
+
+
+_LATIN_RE = re.compile(r"[a-z0-9]+")
+
+
+def _merge_latin_runs(units: list[str]) -> list[str]:
+    """把连续的拉丁/数字 token 合并为一个比较单元."""
+    out: list[str] = []
+    buf: list[str] = []
+    for u in units:
+        if _LATIN_RE.fullmatch(u):
+            buf.append(u)
+        else:
+            if buf:
+                out.append("".join(buf))
+                buf = []
+            out.append(u)
+    if buf:
+        out.append("".join(buf))
+    return out
 
 
 def _to_pinyin(units: list[str]) -> list[str]:

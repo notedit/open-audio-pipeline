@@ -45,22 +45,29 @@ class Index:
         audio_loc: dict[tuple[str, str], tuple[Path, int, int, str]] = {}
         meta_loc: dict[tuple[str, str], tuple[Path, int, int]] = {}
 
-        for tar_path in sorted(self.output_dir.glob("*-clean.tar")):
-            shard = tar_path.name.removesuffix("-clean.tar")
-            with tarfile.open(tar_path) as tf:
-                metas: dict[str, dict] = {}
-                for m in tf:
-                    if not m.isfile():
-                        continue
-                    stem = Path(m.name).stem
-                    ext = Path(m.name).suffix.lstrip(".").lower()
-                    if ext == "json":
-                        metas[stem] = json.loads(tf.extractfile(m).read())
-                        meta_loc[(shard, stem)] = (tar_path, m.offset_data, m.size)
-                    elif ext in MIME:
-                        audio_loc[(shard, stem)] = (tar_path, m.offset_data, m.size, ext)
-                for key, meta in metas.items():
-                    passed.append({"key": key, "shard": shard, "meta": _slim(meta)})
+        # 已完成的 clean.tar + 正在增量写入的 .tmp (容错读取, 末尾截断成员跳过)
+        tar_paths = sorted(self.output_dir.glob("*-clean.tar")) + sorted(self.output_dir.glob("*-clean.tar.tmp"))
+        for tar_path in tar_paths:
+            shard = tar_path.name.removesuffix(".tmp").removesuffix("-clean.tar")
+            in_progress = tar_path.name.endswith(".tmp")
+            metas: dict[str, dict] = {}
+            try:
+                with tarfile.open(tar_path) as tf:
+                    for m in tf:
+                        if not m.isfile():
+                            continue
+                        stem = Path(m.name).stem
+                        ext = Path(m.name).suffix.lstrip(".").lower()
+                        if ext == "json":
+                            metas[stem] = json.loads(tf.extractfile(m).read())
+                            meta_loc[(shard, stem)] = (tar_path, m.offset_data, m.size)
+                        elif ext in MIME:
+                            audio_loc[(shard, stem)] = (tar_path, m.offset_data, m.size, ext)
+            except Exception as e:
+                if not in_progress:
+                    logger.warning("failed reading %s: %s", tar_path.name, e)
+            for key, meta in metas.items():
+                passed.append({"key": key, "shard": shard, "meta": _slim(meta)})
 
         for jl in sorted(self.output_dir.glob("*-drops.jsonl")):
             shard = jl.name.removesuffix("-drops.jsonl")

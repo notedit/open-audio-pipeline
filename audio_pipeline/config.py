@@ -10,7 +10,12 @@ from audio_pipeline.ops import (
     AbnormalPauseFilter,
     AsrWerFilter,
     AudioboxFilter,
+    BandwidthFilter,
+    DenoiseStage,
+    SeparateStage,
+    VADFilter,
     DurationFilter,
+    QualityTierStage,
     EdgeSilenceTrimStage,
     ForcedAlignStage,
     MultiSpeakerFilter,
@@ -31,6 +36,18 @@ def build_stages(cfg: dict, device: str = "cuda") -> list[Stage]:
     if "duration" in cfg:
         d = cfg["duration"]
         stages.append(DurationFilter(min_sec=d["min_sec"], max_sec=d["max_sec"]))
+    va = cfg.get("vad", {})
+    if va.get("enabled"):
+        stages.append(VADFilter(min_speech_ratio=va.get("min_speech_ratio", 0.4)))
+    sp = cfg.get("separate", {})
+    if sp.get("enabled"):
+        stages.append(SeparateStage(device=device, model=sp.get("model", "htdemucs")))
+    dn = cfg.get("denoise", {})
+    if dn.get("enabled"):
+        stages.append(DenoiseStage(device=device))
+    bw = cfg.get("bandwidth", {})
+    if bw.get("enabled"):
+        stages.append(BandwidthFilter(min_rolloff_hz=bw.get("min_rolloff_hz", 4000.0)))
     ab = cfg.get("audiobox", {})
     if ab.get("enabled"):
         stages.append(
@@ -94,6 +111,15 @@ def build_stages(cfg: dict, device: str = "cuda") -> list[Stage]:
             AbnormalPauseFilter(
                 max_gap_sec=pa.get("max_gap_sec", 1.5),
                 max_edge_silence_sec=pa.get("max_edge_silence_sec", 1.0),
+            )
+        )
+    ti = cfg.get("tier", {})
+    if ti.get("enabled", True):
+        stages.append(
+            QualityTierStage(
+                hd_min_pq=ti.get("hd_min_pq", 7.0),
+                hd_max_pc=ti.get("hd_max_pc", 2.5),
+                hd_min_dnsmos=ti.get("hd_min_dnsmos", 3.2),
             )
         )
     pu = cfg.get("punct", {})

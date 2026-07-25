@@ -93,3 +93,15 @@ jq -r 'select(.stage=="audiobox") | .meta.audiobox.PQ' output/*-drops.jsonl | so
 1. `audio_pipeline/datasets/` 加一个 `iter_xxx_tar(path) -> Iterator[Sample]`;
 2. 复制一份 config,按数据集特性开关 stage / 调阈值;
 3. 复制一份 `pipelines/run_*.py`,替换 loader。
+
+### VoxBox (SparkAudio/voxbox)
+
+音频分片与元数据分离(`audios/{subset}/*.tar.gz` + `metadata/{subset}.jsonl`),35 个子源混合中英,带情感/性别/韵律标签(保留进输出 meta):
+
+```bash
+python pipelines/run_voxbox.py \
+    --input "/path/voxbox/audios/*/*.tar.gz" \
+    --metadata-dir /path/voxbox/metadata \
+    --output /data/voxbox-clean --config configs/voxbox.yaml
+# --skip-subsets 默认排除 emilia_zh,wenetspeech4tts(与独立处理重叠,即去重方案)
+```

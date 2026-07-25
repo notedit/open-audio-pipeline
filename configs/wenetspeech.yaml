@@ -3,13 +3,27 @@
 
 batch_size: 64
 
+bandwidth:               # 有效带宽: 频谱 roll-off@0.99 中位数
+  enabled: true
+  min_rolloff_hz: 4000.0
+
+vad:                     # silero 语音占比检测 (纯音乐/静音拒绝), 噪声源建议开
+  enabled: false
+  min_speech_ratio: 0.4
+
+separate:                # demucs 人声分离 (BGM 重的源开启, 分离->降噪)
+  enabled: false
+
+denoise:                 # DeepFilterNet3 降噪 (增强后替换音频), 原始噪声源建议开
+  enabled: false
+
 duration:
   min_sec: 2.0
   max_sec: 30.0
 
 audiobox:
   enabled: true
-  batch_size: 64
+  batch_size: 32   # WS 片段长(至 25s), 激活随时长放大, 批量减半防尖峰
   min_pq: 6.0
   min_ce: null
   min_cu: null
@@ -18,7 +32,7 @@ audiobox:
 diarization:
   enabled: true
   model: nvidia/diar_streaming_sortformer_4spk-v2
-  batch_size: 32
+  batch_size: 16
   max_speakers: 1
   min_speaker_sec: 0.5
 
@@ -26,7 +40,7 @@ asr:
   enabled: true
   model: Qwen/Qwen3-ASR-1.7B
   backend: vllm                # transformers | vllm (vLLM 连续批处理, 吞吐更高)
-  gpu_memory_utilization: 0.15 # vLLM 显存占比; 每卡 2 worker 时各 0.15
+  gpu_memory_utilization: 0.10
   batch_size: 64
   # context 偏置强制口语数字形态, 免去独立 TN stage
   context: "转写时所有数字一律使用中文汉字数字(如:一八七六年、二百一十亿、百分之五十),禁止使用阿拉伯数字和符号。"
@@ -59,3 +73,9 @@ punct:
   enabled: true
   comma_gap_sec: 0.3   # 静音超过且无标点 -> 补逗号
   period_gap_sec: 0.8  # 静音超过且无标点 -> 补句号
+
+tier:                    # emilia-hd-pipeline 质量分档标准 (只打标不过滤)
+  enabled: true
+  hd_min_pq: 7.0
+  hd_max_pc: 2.5
+  hd_min_dnsmos: 3.2     # 无 dnsmos 字段的数据集自动跳过该条件

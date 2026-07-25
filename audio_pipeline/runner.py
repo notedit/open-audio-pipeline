@@ -26,17 +26,13 @@ from audio_pipeline.types import Sample
 logger = logging.getLogger(__name__)
 
 
-def write_output_tar(path: Path, samples: list[Sample]) -> None:
-    """把通过的样本写成 WebDataset 布局的 tar: {key}.{ext} + {key}.json."""
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    with tarfile.open(tmp, "w") as tf:
-        for s in samples:
-            _add_bytes(tf, f"{s.key}.{s.ext}", s.audio_bytes)
-            meta = dict(s.meta)
-            meta["text"] = s.text
-            meta["language"] = s.language
-            _add_bytes(tf, f"{s.key}.json", json.dumps(meta, ensure_ascii=False).encode())
-    tmp.rename(path)
+def append_sample(tf: tarfile.TarFile, s: Sample) -> None:
+    """向输出 tar 追加一条样本 (WebDataset 布局: {key}.{ext} + {key}.json)."""
+    _add_bytes(tf, f"{s.key}.{s.ext}", s.audio_bytes)
+    meta = dict(s.meta)
+    meta["text"] = s.text
+    meta["language"] = s.language
+    _add_bytes(tf, f"{s.key}.json", json.dumps(meta, ensure_ascii=False).encode())
 
 
 def _add_bytes(tf: tarfile.TarFile, name: str, data: bytes) -> None:
@@ -122,10 +118,13 @@ def run_shards(
 
         t0 = time.time()
         out_tar = output_dir / f"{stem}-clean.tar"
+        tmp_tar = out_tar.with_suffix(out_tar.suffix + ".tmp")
         drops_path = output_dir / f"{stem}-drops.jsonl"
-        passed: list[Sample] = []
+        n_kept = 0
 
-        with open(drops_path, "w", encoding="utf-8") as drops_f:
+        # 通过样本增量写入 .tmp, 分片完成后原子改名; 内存占用 O(batch) 而非 O(分片)
+        # buffering=1 行缓冲: drops 即时落盘, 便于外部监控增速
+        with open(drops_path, "w", encoding="utf-8", buffering=1) as drops_f, tarfile.open(tmp_tar, "w") as out_tf:
 
             def on_drop(s: Sample, stage: str) -> None:
                 meta = dict(s.meta)
@@ -150,19 +149,20 @@ def run_shards(
             )
             producer.start()
             while (batch := q.get()) is not None:
-                passed.extend(pipeline.run(batch))
+                for s in pipeline.run(batch):
+                    append_sample(out_tf, s)
+                    s.free_wav()
+                    n_kept += 1
             producer.join()
             if state["error"] is not None:
                 raise state["error"]
             n_in = state["n_in"]
 
-        write_output_tar(out_tar, passed)
-        for s in passed:
-            s.free_wav()
+        tmp_tar.rename(out_tar)
         done_marker.touch()
         logger.info(
             "%s: %d -> %d kept (%.1f%%) in %.0fs | %s",
-            shard.name, n_in, len(passed), 100 * len(passed) / max(n_in, 1),
+            shard.name, n_in, n_kept, 100 * n_kept / max(n_in, 1),
             time.time() - t0, pipeline.format_stats(),
         )
         logger.info("timing | %s", pipeline.format_timing())
