@@ -13,7 +13,9 @@ import jiwer
 
 # 保留中日韩统一表意文字、字母、数字; 其余(标点/符号/空白)替换为空格
 _KEEP_RE = re.compile(r"[^\w一-鿿㐀-䶿]+", re.UNICODE)
-_CJK_RE = re.compile(r"[一-鿿㐀-䶿]")
+# 按单字计错的文字: 汉字 + 日文假名 + 韩文谚文 (这些语言无空格分词或分词不稳定,
+# 整串当一个"词"会让单字差异放大成整段错误)
+_CJK_RE = re.compile(r"[一-鿿㐀-䶿぀-ヿㇰ-ㇿ가-힣]")
 
 
 def normalize_text(text: str) -> str:
@@ -26,11 +28,11 @@ def normalize_text(text: str) -> str:
 
 
 def to_units(text: str, language: str | None) -> list[str]:
-    """切分为计算错误率的单元: 中文单字 + 非中文按空格分词."""
+    """切分为计算错误率的单元: 中/日/韩单字 + 其余按空格分词."""
     text = normalize_text(text)
     if not text:
         return []
-    # 中文字符两侧插空格, 单字成单元; 英文等保持词级
+    # 中日韩字符两侧插空格, 单字成单元; 英文等保持词级
     spaced = _CJK_RE.sub(lambda m: f" {m.group(0)} ", text)
     return spaced.split()
 
@@ -43,6 +45,9 @@ def compute_wer(
     phonetic=True 时中文按拼音比较: 同音字替换(贵绅/贵身)和数字写法差异
     (一八七六/1876)不计错 —— 发音与音频一致的样本对 TTS 是好样本.
     """
+    # 拼音比较只对中文有意义; 其他语言 (英日韩) 退化为普通单元级比较.
+    # 尤其不能对纯英文合并拉丁词: 整句会缩成一个单元, WER 退化为 0/1 全或无.
+    phonetic = phonetic and (language or "zh").lower().startswith("zh")
     if phonetic:
         reference = _numbers_to_cn(reference)
         hypothesis = _numbers_to_cn(hypothesis)

@@ -1,12 +1,16 @@
 #!/bin/bash
 # Emilia worker 常驻看护 daemon:
 # - 全局唯一实例 (flock)
-# - 维持 24 个 worker (num-workers 24, ids 0-23, 每卡 3 个: GPU=id/3)
+# - 维持 NUM_WORKERS = len(GPU_LIST) x SLOTS_PER_GPU 个 worker, worker w -> GPU_LIST[w / SLOTS_PER_GPU]
+#   (默认 8 卡 x 3 = 24; 只用部分卡: GPU_LIST="4 5 6 7" SLOTS_PER_GPU=4)
 # - 缺位逐个补: 全局一次只起一个, 起完等引擎就绪(或 5 分钟超时)再补下一个
 #   => 杜绝并发初始化竞态与重复启动
 # - 精确存活判定: 该 worker-id 的 .venv/bin/python 进程存在即算活
 set -u
 SLOTS_PER_GPU=${SLOTS_PER_GPU:-3}   # 每卡 worker 数(显存紧张时降为 2)
+GPU_LIST=(${GPU_LIST:-0 1 2 3 4 5 6 7})
+NUM_WORKERS=$(( ${#GPU_LIST[@]} * SLOTS_PER_GPU ))
+# 注意: 改变 NUM_WORKERS 会改变分片分配, 只能在全部 worker 停止后重启时改
 exec 9>"${LOCK:-/tmp/emilia-babysitter.lock}"
 flock -n 9 || { echo "babysitter already running"; exit 0; }
 
@@ -21,11 +25,11 @@ RUN_BASE=$(basename "$RUN_SCRIPT")
 cd "$ROOT"
 
 alive() {  # $1=worker-id -> 0 if alive
-  pgrep -f "\.venv/bin/python pipelines/$RUN_BASE .* --worker-id $1 --num-workers 24" >/dev/null
+  pgrep -f "\.venv/bin/python pipelines/$RUN_BASE .* --worker-id $1 --num-workers $NUM_WORKERS" >/dev/null
 }
 
 launch() {  # $1=worker-id
-  local w=$1 G=$(( $1 / 3 ))
+  local w=$1 G=${GPU_LIST[$(( $1 / SLOTS_PER_GPU ))]}
   echo "$(date +%H:%M:%S) launch worker $w -> GPU $G"
   CUDA_VISIBLE_DEVICES=$G VLLM_LOGGING_LEVEL=WARNING \
   PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
@@ -33,8 +37,8 @@ launch() {  # $1=worker-id
   setsid nohup bash -c "$ROOT/.venv/bin/python pipelines/$RUN_BASE \
       --input '$INPUT_GLOB' \
       --output $O --config $CFG \
-      --worker-id $w --num-workers 24; echo \"WORKER_EXIT code=\$? time=\$(date +%F_%T)\"" \
-      >> "$O/logs/worker$w.log" 2>&1 &
+      --worker-id $w --num-workers $NUM_WORKERS; echo \"WORKER_EXIT code=\$? time=\$(date +%F_%T)\"" \
+      >> "$O/logs/worker$w.log" 2>&1 9>&- &   # 9>&- : 不把 flock 的 fd 传给 worker, 否则看护退出后锁仍被 worker 持有
 }
 
 wait_engine() {  # $1=worker-id, 最多 300s; 就绪或死亡即返回
@@ -49,10 +53,9 @@ wait_engine() {  # $1=worker-id, 最多 300s; 就绪或死亡即返回
   return 0
 }
 
-echo "$(date +%H:%M:%S) babysitter started"
+echo "$(date +%H:%M:%S) babysitter started: $NUM_WORKERS workers on GPUs ${GPU_LIST[*]} x$SLOTS_PER_GPU"
 while true; do
-  for w in $(seq 0 23); do
-    [ $((w % 3)) -ge "$SLOTS_PER_GPU" ] && continue
+  for w in $(seq 0 $((NUM_WORKERS - 1))); do
     if ! alive "$w"; then
       # 正常完工(code=0)的 worker 不再拉起, 避免尾声期空转
       last=$(grep -a "WORKER_EXIT" "$O/logs/worker$w.log" 2>/dev/null | tail -1)

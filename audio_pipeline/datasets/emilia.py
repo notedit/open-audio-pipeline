@@ -2,6 +2,7 @@
 
 tar 内为 {id}.json + {id}.mp3 成对出现, json 字段:
 id / wav / text / duration / speaker / language / dnsmos
+Emilia-YODAS 子集布局相同, 但 id 字段名为 _id, 额外带 phone_count.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ def iter_emilia_tar(tar_path: str | Path) -> Iterator[Sample]:
     """按顺序读取一个 Emilia tar 分片, 逐条产出 Sample."""
     pending_json: dict[str, dict] = {}
     pending_audio: dict[str, tuple[bytes, str]] = {}
+    source = "emilia-yodas" if "yodas" in str(tar_path).lower() else "emilia"
     with tarfile.open(tar_path) as tf:
         for member in tf:
             if not member.isfile():
@@ -38,7 +40,7 @@ def iter_emilia_tar(tar_path: str | Path) -> Iterator[Sample]:
                 info = pending_json.pop(stem)
                 audio_bytes, aext = pending_audio.pop(stem)
                 yield Sample(
-                    key=info.get("id", stem),
+                    key=info.get("id") or info.get("_id") or stem,
                     audio_bytes=audio_bytes,
                     ext=aext,
                     text=info.get("text"),
@@ -47,7 +49,7 @@ def iter_emilia_tar(tar_path: str | Path) -> Iterator[Sample]:
                         "duration": info.get("duration"),
                         "speaker": info.get("speaker"),
                         "dnsmos": info.get("dnsmos"),
-                        "source": "emilia",
+                        "source": source,
                     },
                 )
     if pending_json or pending_audio:
