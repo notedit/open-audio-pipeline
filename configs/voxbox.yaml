@@ -32,10 +32,13 @@ audiobox:
 
 diarization:
   enabled: true
-  model: nvidia/diar_streaming_sortformer_4spk-v2
+  # 多模型并集: 任一模型判多人即过滤 (v2 能抓到 Nemotron-3 漏掉的短附和; Nemotron-3 需 NeMo>=3.1)
+  model:
+    - nvidia/diar_streaming_sortformer_4spk-v2
+    - nvidia/Nemotron-3-Diarization
   batch_size: 32
   max_speakers: 1
-  min_speaker_sec: 0.5
+  min_speaker_sec: 0.0  # 任何被检出的第二说话人都计数 (目的是过滤掉含短促附和"嗯/对/是"的样本), 勿调高
 
 asr:
   enabled: true

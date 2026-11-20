@@ -26,7 +26,7 @@ def main() -> None:
     ap.add_argument("--audio-dir", required=True)
     ap.add_argument("--groups", required=True)
     ap.add_argument("--device", default="cuda")
-    ap.add_argument("--min-speaker-sec", type=float, default=0.5)
+    ap.add_argument("--min-speaker-sec", type=float, default=0.0)
     args = ap.parse_args()
 
     groups = json.loads(Path(args.groups).read_text())

@@ -63,7 +63,7 @@ def build_stages(cfg: dict, device: str = "cuda") -> list[Stage]:
             MultiSpeakerFilter(
                 model_name=di.get("model", "nvidia/diar_streaming_sortformer_4spk-v2"),
                 max_speakers=di.get("max_speakers", 1),
-                min_speaker_sec=di.get("min_speaker_sec", 0.5),
+                min_speaker_sec=di.get("min_speaker_sec", 0.0),
                 batch_size=di.get("batch_size", 16), device=device,
             )
         )

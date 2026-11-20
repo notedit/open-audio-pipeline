@@ -10,7 +10,7 @@
   |---|---|---|---|
   | `DurationFilter` | 时长/文本预过滤 | 无(读元数据) | 时长超界、空文本 |
   | `AudioboxFilter` | 美学评分 | facebook/audiobox-aesthetics | PQ/CE/CU 低于阈值、PC 高于阈值 |
-  | `MultiSpeakerFilter` | 多说话人检测 | nvidia/diar_streaming_sortformer_4spk-v2 | 有效说话人数 > 1 |
+  | `MultiSpeakerFilter` | 多说话人检测 | nvidia/diar_streaming_sortformer_4spk-v2 + nvidia/Nemotron-3-Diarization(并集) | 任一模型判说话人数 > 1(任何时长的第二说话人都算, 短附和也过滤) |
   | `AsrWerFilter` | 双 ASR 一致性 | Qwen/Qwen3-ASR-1.7B | 拼音级 WER > 阈值即拒;通过后采用 Qwen 转写为最终文本(源文本是旧 ASR 输出,非 ground truth) |
   | `TextNormalizationStage` | 文本正则化(TN,默认关) | Qwen/Qwen3-4B | 兜底:ASR 已用 context 偏置强制中文数字输出,仅当残留书面形式时再启用 |
   | `ForcedAlignStage` | 强制对齐 | Qwen/Qwen3-ForcedAligner-0.6B | 只标注字/词级时间戳,不过滤 |
@@ -52,6 +52,24 @@ done
 ```
 
 调试:`--limit-samples 64` 每分片只处理前 64 条。
+
+### 多说话人模型选择
+
+`diarization.model` 可以是单个模型或模型列表(HF 名或本地 `.nemo` 路径)。默认配置用 v2 + Nemotron-3 两个模型取并集:
+每个模型都跑全部样本,任一判多人即过滤,drops 的 reason 形如 `multi_speaker:2@<判多人的模型>`,
+各模型结果分别记在 `meta.diarization.models`。Nemotron-3 需 NeMo >= 3.1:
+
+```bash
+uv pip install "nemo_toolkit[asr] @ <nemo-speech 源码目录>" "lhotse==2.0.0a6"   # 不动 torch/vLLM
+```
+
+注意 `uv sync` 会把 NeMo 降回 lock 里的 2.7.3(同 vLLM),之后需重装。
+2026-11-20 在 Emilia ZH 上对比(空闲 H200,同为 NeMo 3.1):Sortformer-v2 73 条/s,Nemotron-3 64 条/s;
+在 v2 判多人的 188 条上 Nemotron-3 只判出 107 条,随机 1000 条中两者分别判出 2 / 6 条(min_speaker_sec=0.5)。
+改为 min_speaker_sec=0(现行策略)后:188 条中 Nemotron-3 判出 115 条,随机 1000 条中两者分别判出 10 / 19 条。
+试听标注(v2 判多人、Nemotron-3 判单人的 32 条):23 条是 v2 误判,9 条是 Nemotron-3 漏掉的真多人,其中多条是短附和。
+Nemotron-3 的判定阈值和流式窗口(含模型卡推荐的 340/40/40/300)都扫过,救不回这些漏判,所以两个模型取并集。
+代价:这个 stage 的耗时约翻倍;512 条实测 multi_speaker 丢 10 条(仅 v2 判 2、两者都判 3、仅 Nemotron-3 判 5)。
 
 ## 结果预览
 
